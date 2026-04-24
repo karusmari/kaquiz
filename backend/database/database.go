@@ -14,5 +14,7 @@ func Connect() {
 		panic("Connection to database failed")
 	}
 	db.AutoMigrate(&models.User{})
+	db.AutoMigrate(&models.Location{})
+	db.AutoMigrate(&models.Friendship{})
 	DB = db
 }
