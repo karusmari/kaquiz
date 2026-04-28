@@ -7,7 +7,23 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func SendFriendRequest(c *gin.Context) {
+func SearchUsers(c *gin.Context) {
+	email := c.Query("email") //get the email query parameter from the request
+	
+	var user models.User
+	if err := database.DB.Where("email = ?", email).First(&user).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"id":    user.ID,
+		"email": user.Email,
+	})
+}
+
+
+func SendInvites(c *gin.Context) {
 	senderID, _ := c.Get("userID") // Get the sender's user ID from the context set by the AuthMiddleware
 	var input struct {
 		Email string `json:"email"`
@@ -40,7 +56,7 @@ func SendFriendRequest(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Friend request sent successfully"})
 }
 
-func AcceptFriendRequest(c *gin.Context) {
+func AcceptInvites(c *gin.Context) {
 	userID, _ := c.Get("userID") // Get the user's ID from the context set by the AuthMiddleware
 	var input struct {
 		FriendID uint `json:"friendship_id"`

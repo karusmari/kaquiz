@@ -8,16 +8,21 @@ import (
 
 // Setup defines the API routes for the application
 func Setup(r *gin.Engine) {
-	r.POST("/register", controllers.Register)
-	r.POST("/login", controllers.Login)
+	r.POST("/auth", controllers.GoogleLogin)
 
 	// Protected routes that need authentication
 	protected := r.Group("/api")
 	protected.Use(middleware.AuthMiddleware())
 	{
+		protected.GET("/users/search", controllers.SearchUsers)
+		
 		protected.POST("/location", controllers.UpdateLocation)
-		protected.POST("/friends/request", controllers.SendFriendRequest)
-		protected.GET("/friends/locations", controllers.GetFriendsLocations)
-		protected.POST("/friends/accept", controllers.AcceptFriendRequest)
+		
+		protected.POST("/invites/:user_id", controllers.SendInvites)
+		protected.POST("/invites/:user_id/accept", controllers.AcceptInvites)
+		//protected.POST("/invites/:user_id/decline", controllers.DeclineInvites)
+
+		protected.GET("/friends", controllers.GetFriendsLocations)
+		//protected.DELETE("/friends/:id", controllers.DeleteFriend)
 	}
 }
