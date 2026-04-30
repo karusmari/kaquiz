@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"fmt"
+	"kaquiz-backend/controllers"
 	"net/http"
+	"strings"
+
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
-	"kaquiz-backend/controllers"
-	"strings"
 )
 
 func AuthMiddleware() gin.HandlerFunc {
@@ -31,9 +33,51 @@ func AuthMiddleware() gin.HandlerFunc {
 			return
 		}
 
-		// if all good, set the user ID in the context for further use for the controllers
-		claims := token.Claims.(jwt.MapClaims)
-		c.Set("userID", claims["user_id"])
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims"})
+			c.Abort()
+			return
+		}
+
+		claimUserID, ok := claims["user_id"]
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "user_id missing in token"})
+			c.Abort()
+			return
+		}
+
+		var parsedUserID uint
+		switch v := claimUserID.(type) {
+		case float64:
+			if v <= 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user id in token"})
+				c.Abort()
+				return
+			}
+			parsedUserID = uint(v)
+		case int:
+			if v <= 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user id in token"})
+				c.Abort()
+				return
+			}
+			parsedUserID = uint(v)
+		case uint:
+			if v == 0 {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user id in token"})
+				c.Abort()
+				return
+			}
+			parsedUserID = v
+		default:
+			c.JSON(http.StatusUnauthorized, gin.H{"error": fmt.Sprintf("Unsupported user id type: %T", claimUserID)})
+			c.Abort()
+			return
+		}
+
+		// Set user ID as typed uint to avoid float casts in controllers.
+		c.Set("userID", parsedUserID)
 
 		c.Next() // continue to the next handler
 	}

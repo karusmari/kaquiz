@@ -14,6 +14,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     serverClientId: dotenv.env['GOOGLE_WEB_CLIENT_ID'],
+    scopes: ['email', 'profile'],
   );
   final ApiService _apiService = ApiService();
   bool _isLoading = false;
@@ -22,11 +23,16 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isLoading = true);
 
     try {
+      print("🔐 Starting Google Sign-In process...");
+
       // Clear any previous Google session so the account chooser is shown again.
       await _googleSignIn.signOut();
+      print("✅ Signed out previous session");
 
       // 1. Google sisselogimise aken
+      print("🔄 Calling GoogleSignIn.signIn()...");
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      print("✅ Got Google user: ${googleUser?.email}");
 
       if (googleUser == null) {
         setState(() => _isLoading = false);
@@ -42,19 +48,25 @@ class _LoginScreenState extends State<LoginScreen> {
       final String? jwtToken = await _apiService.loginWithGoogle(idToken);
 
       if (jwtToken != null) {
+		final profile = await _apiService.getMyProfile();
+		final avatarUrl = profile?['avatar'] as String?;
+
         print("Login successful! Token: $jwtToken");
         if (!mounted) return;
 
         // NEXT STEP: Navigate to Map screen
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const MapScreen()),
+          MaterialPageRoute(
+            builder: (context) => MapScreen(initialAvatarUrl: avatarUrl),
+          ),
         );
       } else {
         throw Exception("Backend did not return a token");
       }
-    } catch (error) {
-      print("Error logging in: $error");
+    } catch (error, stackTrace) {
+      print("❌ ERROR logging in: $error");
+      print("📍 Stack trace: $stackTrace");
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

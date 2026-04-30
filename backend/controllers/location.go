@@ -1,23 +1,35 @@
-package controllers 
+package controllers
 
 import (
 	"kaquiz-backend/database"
 	"kaquiz-backend/models"
 	"net/http"
-	"github.com/gin-gonic/gin"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func UpdateLocation(c *gin.Context) {
 
-	userID, _ := c.Get("userID") // Get the user ID from the context set by the AuthMiddleware
+	userID, ok := c.Get("userID") // Get the user ID from the context set by the AuthMiddleware
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	currentUserID, ok := userID.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
+		return
+	}
+
 	var input models.Location
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid coordinates"})
 		return
 	}
 
-    input.UserID = uint(userID.(float64)) // Set the user ID in the location struct
+	input.UserID = currentUserID // Set the user ID in the location struct
 	input.UpdatedAt = time.Now()
 
 	if err := database.DB.Save(&input).Error; err != nil {
@@ -28,7 +40,17 @@ func UpdateLocation(c *gin.Context) {
 }
 
 func GetFriendsLocations(c *gin.Context) {
-	userID, _ := c.Get("userID") // Get the user ID from the context set by the AuthMiddleware
+	userID, ok := c.Get("userID") // Get the user ID from the context set by the AuthMiddleware
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	currentUserID, ok := userID.(uint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
+		return
+	}
 
 	var locations []models.Location
 
@@ -37,8 +59,8 @@ func GetFriendsLocations(c *gin.Context) {
 		Select("locations.*").
 		Joins("join friendships on (friendships.user_id = locations.user_id OR friendships.friend_id = locations.user_id)").
 		Where("friendships.status = 'accepted'").
-		Where("(friendships.user_id = ? OR friendships.friend_id = ?)", userID, userID).
-		Where("locations.user_id != ?", userID). // don't include the user's own location
+		Where("(friendships.user_id = ? OR friendships.friend_id = ?)", currentUserID, currentUserID).
+		Where("locations.user_id != ?", currentUserID). // don't include the user's own location
 		Find(&locations).Error
 
 	if err != nil {

@@ -51,13 +51,25 @@ func GoogleLogin(c *gin.Context) {
 
 	var user models.User
 	if err := database.DB.Where("email = ?", email).First(&user).Error; err != nil {
-		// User not found, create a new user
+		// User not found, create a new user with Google avatar and name
 		user = models.User{
 			Email:  email,
 			Name:   name,
 			Avatar: avatar,
 		}
 		database.DB.Create(&user)
+	} else {
+		// User exists: only set avatar/name from Google if not already present
+		updates := map[string]interface{}{}
+		if user.Avatar == "" && avatar != "" {
+			updates["avatar"] = avatar
+		}
+		if user.Name == "" && name != "" {
+			updates["name"] = name
+		}
+		if len(updates) > 0 {
+			database.DB.Model(&user).Updates(updates)
+		}
 	}
 
 	// Create JWT token
