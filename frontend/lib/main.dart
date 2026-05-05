@@ -1,17 +1,38 @@
 import 'package:flutter/material.dart';
-import 'screens/login_screen.dart';
+import 'screens/splash_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:provider/provider.dart';
+import 'services/api_service.dart';
+import 'models/profile_model.dart';
+import 'models/map_state_model.dart';
+import 'models/friends_model.dart';
 
-void main() async{
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
     await dotenv.load(fileName: ".env");
   } catch (e) {
     print("Error loading .env file: $e");
-  
   }
-  runApp(const KaQuizApp());
+
+  runApp(
+    MultiProvider(
+      providers: [
+        Provider(create: (_) => ApiService()),
+        ChangeNotifierProvider(
+          create: (context) => FriendsModel(context.read<ApiService>()),
+        ),
+        ChangeNotifierProvider(
+          create: (context) => ProfileModel(context.read<ApiService>()),
+        ),
+        ChangeNotifierProvider(
+          create: (context) => MapStateModel(context.read<ApiService>()),
+        ),
+      ],
+      child: const KaQuizApp(),
+    ),
+  );
 }
 
 class KaQuizApp extends StatelessWidget {
@@ -22,11 +43,8 @@ class KaQuizApp extends StatelessWidget {
     return MaterialApp(
       title: 'KaQuiz',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
-      home: const LoginScreen(), // App starts with the login screen
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      home: const SplashScreen(),
     );
   }
 }

@@ -6,10 +6,12 @@ import (
 	"kaquiz-backend/models"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	"google.golang.org/api/idtoken"
 )
@@ -72,10 +74,13 @@ func GoogleLogin(c *gin.Context) {
 		}
 	}
 
+	// Create JWT token with a jti (unique id) so it can be revoked
+	jti := uuid.NewString()
 	// Create JWT token
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"user_id": user.ID,
 		"exp":     time.Now().Add(time.Hour * 72).Unix(),
+		"jti":     jti,
 	})
 
 	tokenString, err := token.SignedString([]byte(GetSecret()))
@@ -85,4 +90,53 @@ func GoogleLogin(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"token": tokenString})
+}
+
+// SignOut revokes the current token (by jti) so it can't be used again
+func SignOut(c *gin.Context) {
+	// Extract token string from Authorization header
+	authHeader := c.GetHeader("Authorization")
+	if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
+		return
+	}
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+	// Parse token to extract jti
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return []byte(GetSecret()), nil
+	})
+	if err != nil || !token.Valid {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+		return
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token claims"})
+		return
+	}
+
+	rawJTI, ok := claims["jti"]
+	if !ok {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "token has no jti"})
+		return
+	}
+
+	jtiStr, ok := rawJTI.(string)
+	if !ok || jtiStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid jti"})
+		return
+	}
+
+	revoked := models.RevokedToken{
+		JTI:       jtiStr,
+		RevokedAt: time.Now(),
+	}
+	if err := database.DB.Create(&revoked).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke token"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Signed out"})
 }

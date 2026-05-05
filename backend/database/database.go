@@ -16,5 +16,6 @@ func Connect() {
 	db.AutoMigrate(&models.User{})
 	db.AutoMigrate(&models.Location{})
 	db.AutoMigrate(&models.Friendship{})
+	db.AutoMigrate(&models.RevokedToken{})
 	DB = db
 }

@@ -13,7 +13,7 @@ func Setup(r *gin.Engine) {
 
 	// Protected routes that need authentication
 	protected := r.Group("/api")
-	protected.Use(middleware.AuthMiddleware())
+	protected.Use(middleware.AuthMiddleware(controllers.GetSecret()))
 	{
 		protected.PUT("/users", controllers.UpdateUserProfile)
 		protected.GET("/users/me", controllers.GetMyProfile)
@@ -23,7 +23,7 @@ func Setup(r *gin.Engine) {
 
 		protected.POST("/invites/:user_id", controllers.SendInvites)
 		protected.POST("/invites/:user_id/accept", controllers.AcceptInvites)
-		//protected.POST("/invites/:user_id/decline", controllers.DeclineInvites)
+		protected.POST("/invites/:user_id/decline", controllers.DeclineInvites)
 		protected.GET("/invites/pending", controllers.GetPendingInvites)
 
 		protected.GET("/friends", controllers.GetFriendsLocations)

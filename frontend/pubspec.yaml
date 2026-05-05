@@ -42,6 +42,8 @@ dependencies:
   flutter_dotenv: ^6.0.1
   flutter_map: ^6.0.0
   latlong2: ^0.9.1
+  image_picker: ^1.1.2
+  provider: ^6.0.5
 
 dev_dependencies:
   flutter_test:

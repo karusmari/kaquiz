@@ -8,26 +8,51 @@ class ApiService {
   final String baseUrl = dotenv.env['BASE_URL'] ?? "http://localhost:8080";
   final _storage = const FlutterSecureStorage();
 
+  // Helper method to get headers with optional authorization
+  Future<Map<String, String>> _getAuthHeaders({bool protected = true}) async {
+    final Map<String, String> headers = {
+      "Content-Type": "application/json",
+      "ngrok-skip-browser-warning": "true",
+    };
+
+    if (protected) {
+      String? token = await _storage.read(key: 'jwt_token');
+      if (token != null && token.isNotEmpty) {
+        headers["authorization"] = "Bearer $token";
+      }
+    }
+    return headers;
+  }
+
+  // Sign out locally by removing the stored JWT
+  Future<void> signOut() async {
+    await _storage.delete(key: 'jwt_token');
+  }
+
+  // If server returns 401, perform client-side sign out and return true
+  Future<bool> _handleUnauthorized(int statusCode) async {
+    if (statusCode == 401) {
+      print('Unauthorized detected — clearing token and signing out locally');
+      await signOut();
+      return true;
+    }
+    return false;
+  }
+
+  // Login with Google ID token, returns JWT on success
   Future<String?> loginWithGoogle(String? idToken) async {
     try {
       final response = await http.post(
         Uri.parse('$baseUrl/auth'),
-        headers: {
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
+        headers: await _getAuthHeaders(protected: false),
         body: jsonEncode({"id_token": idToken}),
       );
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final token = data['token'];
+        final token = jsonDecode(response.body)['token'];
 
         if (token != null) {
-          await _storage.write(
-            key: 'jwt_token',
-            value: token,
-          ); // Save token securely
+          await _storage.write(key: 'jwt_token', value: token); // Save token securely
         }
         return token;
       } else {
@@ -45,18 +70,17 @@ class ApiService {
   // Fetch current logged-in user's profile.
   Future<Map<String, dynamic>?> getMyProfile() async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
-      if (token == null) return null;
-
       final response = await http.get(
         Uri.parse('$baseUrl/api/users/me'),
-        headers: {"authorization": token, "ngrok-skip-browser-warning": "true"},
+        headers: await _getAuthHeaders(protected: true),
       );
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
 
+      // If unauthorized, clear token and let caller handle navigation
+      await _handleUnauthorized(response.statusCode);
       print(
         'Get profile failed with status: ${response.statusCode}, body: ${response.body}',
       );
@@ -70,19 +94,14 @@ class ApiService {
   // sending the location. Thats the one to call every 5 seconds.
   Future<bool> updateLocation(double latitude, double longitude) async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
-      if (token == null) return false;
-
       final response = await http.post(
         Uri.parse('$baseUrl/api/location'),
-        headers: {
-          "authorization": token,
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
+        headers: await _getAuthHeaders(protected: true),
         body: jsonEncode({"latitude": latitude, "longitude": longitude}),
       );
-      return response.statusCode == 200;
+      if (response.statusCode == 200) return true;
+      await _handleUnauthorized(response.statusCode);
+      return false;
     } catch (e) {
       print("Location update error: $e");
       return false;
@@ -95,20 +114,13 @@ class ApiService {
     String? avatar,
   }) async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
-      if (token == null) return null;
-
       final body = <String, dynamic>{};
       if (name != null) body['name'] = name;
       if (avatar != null) body['avatar'] = avatar;
 
       final response = await http.put(
         Uri.parse('$baseUrl/api/users'),
-        headers: {
-          "authorization": token,
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
+        headers: await _getAuthHeaders(protected: true),
         body: jsonEncode(body),
       );
 
@@ -116,6 +128,7 @@ class ApiService {
         return jsonDecode(response.body) as Map<String, dynamic>;
       }
 
+      await _handleUnauthorized(response.statusCode);
       print(
         'Update profile failed with status: ${response.statusCode}, body: ${response.body}',
       );
@@ -129,20 +142,15 @@ class ApiService {
   // searching the user by email
   Future<Map<String, dynamic>?> searchUserByEmail(String email) async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
       final response = await http.get(
-        Uri.parse(
-          '$baseUrl/api/users/search?email=${Uri.encodeQueryComponent(email)}',
-        ),
-        headers: {
-          "authorization": token ?? "", // sending the token for authentication
-          "ngrok-skip-browser-warning": "true",
-        },
+        Uri.parse('$baseUrl/api/users/search?email=${Uri.encodeQueryComponent(email)}'),
+        headers: await _getAuthHeaders(protected: true),
       );
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body); // Returns {"id": X, "email": "..."}
       }
+      await _handleUnauthorized(response.statusCode);
       return null;
     } catch (e) {
       print("Search error: $e");
@@ -150,18 +158,37 @@ class ApiService {
     }
   }
 
+  // Search users by partial email/name. Returns a list or null.
+  Future<List<dynamic>?> searchUsers(String query) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/users/search?email=${Uri.encodeQueryComponent(query)}'),
+        headers: await _getAuthHeaders(protected: true),
+      );
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        if (decoded is List) return decoded;
+        if (decoded is Map) return [decoded];
+      }
+      await _handleUnauthorized(response.statusCode);
+      return null;
+    } catch (e) {
+      print("Search users error: $e");
+      return null;
+    }
+  }
+
   // sending an invite via user ID (Swagger: POST /invites/{user_id})
   Future<bool> sendInvite(int userId) async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
       final response = await http.post(
         Uri.parse('$baseUrl/api/invites/$userId'),
-        headers: {
-          "authorization": token ?? "", // sending the token for authentication
-          "ngrok-skip-browser-warning": "true",
-        },
+        headers: await _getAuthHeaders(protected: true),
       );
-      return response.statusCode == 200;
+      if (response.statusCode == 200) return true;
+      await _handleUnauthorized(response.statusCode);
+      return false;
     } catch (e) {
       print("Invite error: $e");
       return false;
@@ -195,12 +222,9 @@ class ApiService {
   // fetching friends' locations
   Future<List<dynamic>?> getFriendsLocations() async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
-      if (token == null) return null;
-
       final response = await http.get(
         Uri.parse('$baseUrl/api/friends'),
-        headers: {"authorization": token, "ngrok-skip-browser-warning": "true"},
+        headers: await _getAuthHeaders(protected: true),
       );
 
       if (response.statusCode == 200) {
@@ -218,12 +242,9 @@ class ApiService {
   // Delete a friend by ID
   Future<bool> deleteFriend(int friendId) async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
-      if (token == null) return false;
-
       final response = await http.delete(
         Uri.parse('$baseUrl/api/friends/$friendId'),
-        headers: {"authorization": token, "ngrok-skip-browser-warning": "true"},
+        headers: await _getAuthHeaders(protected: true),
       );
 
       return response.statusCode == 200;
@@ -237,17 +258,15 @@ class ApiService {
   // Returns list of {user_id, name, email, ...}
   Future<List<dynamic>?> getFriendsList() async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
-      if (token == null) return null;
-
       final response = await http.get(
         Uri.parse('$baseUrl/api/friends/list'),
-        headers: {"authorization": token, "ngrok-skip-browser-warning": "true"},
+        headers: await _getAuthHeaders(protected: true),
       );
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       }
+      await _handleUnauthorized(response.statusCode);
       return null;
     } catch (e) {
       print("Get friends list error: $e");
@@ -258,17 +277,15 @@ class ApiService {
   // Fetch pending friend invites (invitations sent to current user)
   Future<List<dynamic>?> getPendingInvites() async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
-      if (token == null) return null;
-
       final response = await http.get(
         Uri.parse('$baseUrl/api/invites/pending'),
-        headers: {"authorization": token, "ngrok-skip-browser-warning": "true"},
+        headers: await _getAuthHeaders(protected: true),
       );
 
       if (response.statusCode == 200) {
         return jsonDecode(response.body);
       }
+      await _handleUnauthorized(response.statusCode);
       return null;
     } catch (e) {
       print("Get pending invites error: $e");
@@ -279,22 +296,35 @@ class ApiService {
   // Accept an invite by friendship ID
   Future<bool> acceptInvite(int friendshipId) async {
     try {
-      String? token = await _storage.read(key: 'jwt_token');
-      if (token == null) return false;
-
       final response = await http.post(
         Uri.parse('$baseUrl/api/invites/$friendshipId/accept'),
-        headers: {
-          "authorization": token,
-          "Content-Type": "application/json",
-          "ngrok-skip-browser-warning": "true",
-        },
+        headers: await _getAuthHeaders(protected: true),
         body: jsonEncode({"friendship_id": friendshipId}),
       );
 
-      return response.statusCode == 200;
+      if (response.statusCode == 200) return true;
+      await _handleUnauthorized(response.statusCode);
+      return false;
     } catch (e) {
       print("Accept invite error: $e");
+      return false;
+    }
+  }
+
+  // Decline an invite by friendship ID
+  Future<bool> declineInvite(int friendshipId) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/invites/$friendshipId/decline'),
+        headers: await _getAuthHeaders(protected: true),
+        body: jsonEncode({"friendship_id": friendshipId}),
+      );
+
+      if (response.statusCode == 200) return true;
+      await _handleUnauthorized(response.statusCode);
+      return false;
+    } catch (e) {
+      print("Decline invite error: $e");
       return false;
     }
   }

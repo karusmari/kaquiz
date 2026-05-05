@@ -87,7 +87,6 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("KaQuiz Login")),
       body: Center(
         child: _isLoading
             ? const CircularProgressIndicator()
@@ -95,7 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Text(
-                    "Welcome to KaQuiz!",
+                    "Welcome to WhereUAt!",
                     style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 30),
