@@ -5,7 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../services/api_service.dart';
 import '../compact_list_card.dart';
-import '../../models/friends_model.dart';
+import '../../provider/friends_provider.dart';
 
 Future<void> showFriendsListDialog(
   BuildContext context,

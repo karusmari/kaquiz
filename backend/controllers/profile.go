@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// using this struct to update the user profile(name and avatar)
 type UpdateUserProfileInput struct {
 	Name   *string `json:"name"`
 	Avatar *string `json:"avatar"`

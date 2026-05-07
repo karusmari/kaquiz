@@ -1,35 +1,39 @@
 package controllers
 
 import (
-	"fmt"
+	"errors"
 	"kaquiz-backend/database"
 	"kaquiz-backend/models"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
+// search users by email
 func SearchUsers(c *gin.Context) {
-	userID, ok := c.Get("userID")
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-	currentUserID, ok := userID.(uint)
-	if !ok {
+	currentUserID, err := GetUserIDFromContext(c)
+	if err != nil {
+		if err.Error() == "unauthorized" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
 		return
 	}
 
-	query := strings.TrimSpace(c.Query("email")) // keep existing param name for compatibility
+	// Get the search query from the query parameters, trim whitespace, and check if it's empty
+	query := strings.TrimSpace(c.Query("email"))
 	if query == "" {
 		c.JSON(http.StatusOK, []gin.H{})
 		return
 	}
 
+	// use a case-insensitive search pattern
 	pattern := "%" + strings.ToLower(query) + "%"
 
+	// users struct to hold the search results, only selecting the fields we need for the frontend to display the search results
 	var users []struct {
 		ID     uint   `json:"id"`
 		Name   string `json:"name"`
@@ -37,7 +41,8 @@ func SearchUsers(c *gin.Context) {
 		Avatar string `json:"avatar"`
 	}
 
-	err := database.DB.Table("users").
+	// Query the database for users matching the search pattern, excluding the current user and existing friends
+	err = database.DB.Table("users").
 		Select("id, name, email, avatar").
 		Where("id != ?", currentUserID).
 		Where("LOWER(email) LIKE ? OR LOWER(name) LIKE ?", pattern, pattern).
@@ -49,11 +54,13 @@ func SearchUsers(c *gin.Context) {
 		Order("name ASC, email ASC").
 		Limit(10).
 		Scan(&users).Error
+
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search users"})
 		return
 	}
 
+	// if no users found, return an empty array instead of null
 	if len(users) == 0 {
 		c.JSON(http.StatusOK, []gin.H{})
 		return
@@ -62,29 +69,25 @@ func SearchUsers(c *gin.Context) {
 	c.JSON(http.StatusOK, users)
 }
 
+// send a friend request to another user
 func SendInvites(c *gin.Context) {
-	senderID, ok := c.Get("userID") // Get the sender's user ID from the context set by the AuthMiddleware
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	currentSenderID, ok := senderID.(uint)
-	if !ok {
+	currentSenderID, err := GetUserIDFromContext(c)
+	if err != nil {
+		if err.Error() == "unauthorized" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
 		return
 	}
 
-	friendIDStr := c.Param("user_id") // Get the recipient user ID from the URL path
-
-	// Parse recipient user ID
-	var friendID uint
-	if _, err := fmt.Sscanf(friendIDStr, "%d", &friendID); err != nil {
+	friendID, err := ParseUintParam(c, "user_id")
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user_id"})
 		return
 	}
 
-	// Verify recipient exists
+	// Verify recipient exists in the database
 	var friend models.User
 	if err := database.DB.First(&friend, friendID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
@@ -92,17 +95,17 @@ func SendInvites(c *gin.Context) {
 	}
 
 	// Check if friendship already exists (pending or accepted)
-	var existingFriendship models.Friendship
-	if err := database.DB.Where(
-		"(user_id = ? AND friend_id = ?) OR (user_id = ? AND friend_id = ?)",
-		currentSenderID, friendID, friendID, currentSenderID,
-	).First(&existingFriendship).Error; err == nil {
-		// Friendship exists
+	existingFriendship, err := FindFriendshipBetween(currentSenderID, friendID)
+	if err == nil {
 		if existingFriendship.Status == "pending" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Friend request already pending"})
+			return
 		} else if existingFriendship.Status == "accepted" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Already friends"})
+			return
 		}
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to check friendship"})
 		return
 	}
 
@@ -113,6 +116,7 @@ func SendInvites(c *gin.Context) {
 		Status:   "pending",
 	}
 
+	// create the friendship record in the database
 	if err := database.DB.Create(&friendship).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send friend request"})
 		return
@@ -121,23 +125,25 @@ func SendInvites(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Friend request sent successfully"})
 }
 
+// accept a friend request
 func AcceptInvites(c *gin.Context) {
-	userID, ok := c.Get("userID") // Get the user's ID from the context set by the AuthMiddleware
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	currentUserID, ok := userID.(uint)
-	if !ok {
+	currentUserID, err := GetUserIDFromContext(c)
+	if err != nil {
+		if err.Error() == "unauthorized" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
 		return
 	}
 
+	// a struct to bind the incoming JSON body, which contains the ID of the friend request to accept.
+	// We need this because the frontend will send the ID of the friend request that the user wants to accept.
 	var input struct {
 		FriendID uint `json:"friendship_id"`
 	}
 
+	// Bind the JSON body to the input struct and check for errors
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
@@ -154,6 +160,7 @@ func AcceptInvites(c *gin.Context) {
 		return
 	}
 
+	// If no rows were affected, it means the friend request was not found or the user is not the recipient
 	if result.RowsAffected == 0 {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Friend request not found"})
 		return
@@ -163,23 +170,25 @@ func AcceptInvites(c *gin.Context) {
 
 }
 
+// decline a friend request
 func DeclineInvites(c *gin.Context) {
-	userID, ok := c.Get("userID") // Get the user's ID from the context set by the AuthMiddleware
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	currentUserID, ok := userID.(uint)
-	if !ok {
+	currentUserID, err := GetUserIDFromContext(c)
+	if err != nil {
+		if err.Error() == "unauthorized" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
 		return
 	}
 
+	// a struct to bind the incoming JSON body, which contains the ID of the friend request to decline.
+	// We need this because the frontend will send the ID of the friend request that the user wants to decline.
 	var input struct {
 		FriendID uint `json:"friendship_id"`
 	}
 
+	// Bind the JSON body to the input struct and check for errors
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
@@ -202,21 +211,18 @@ func DeclineInvites(c *gin.Context) {
 }
 
 func DeleteFriend(c *gin.Context) {
-	userID, ok := c.Get("userID") // Get the current user's ID from the context
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	currentUserID, ok := userID.(uint)
-	if !ok {
+	currentUserID, err := GetUserIDFromContext(c)
+	if err != nil {
+		if err.Error() == "unauthorized" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
 		return
 	}
 
-	friendIDStr := c.Param("id") // Get the friend ID from the URL parameter
-	var friendID uint
-	if _, err := fmt.Sscanf(friendIDStr, "%d", &friendID); err != nil {
+	friendID, err := ParseUintParam(c, "id")
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid friend id"})
 		return
 	}
@@ -241,14 +247,12 @@ func DeleteFriend(c *gin.Context) {
 }
 
 func ListFriends(c *gin.Context) {
-	userID, ok := c.Get("userID") // Get the current user's ID from the context
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	currentUserID, ok := userID.(uint)
-	if !ok {
+	currentUserID, err := GetUserIDFromContext(c)
+	if err != nil {
+		if err.Error() == "unauthorized" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
 		return
 	}
@@ -261,7 +265,7 @@ func ListFriends(c *gin.Context) {
 	}
 
 	// Query all accepted friendships and join with users table
-	err := database.DB.Table("users").
+	err = database.DB.Table("users").
 		Select("users.id, users.name, users.email, users.avatar").
 		Joins("join friendships on (friendships.friend_id = users.id OR friendships.user_id = users.id)").
 		Where("friendships.status = 'accepted'").
@@ -278,14 +282,12 @@ func ListFriends(c *gin.Context) {
 }
 
 func GetPendingInvites(c *gin.Context) {
-	userID, ok := c.Get("userID") // Get the current user's ID from the context
-	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
-		return
-	}
-
-	currentUserID, ok := userID.(uint)
-	if !ok {
+	currentUserID, err := GetUserIDFromContext(c)
+	if err != nil {
+		if err.Error() == "unauthorized" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Invalid user id"})
 		return
 	}
@@ -300,7 +302,7 @@ func GetPendingInvites(c *gin.Context) {
 	}
 
 	// Query all pending friendships where current user is the recipient
-	err := database.DB.Table("friendships").
+	err = database.DB.Table("friendships").
 		Select("friendships.id, friendships.user_id as sender_id, users.name as sender_name, users.email as sender_email, users.avatar as sender_avatar, friendships.status").
 		Joins("join users on users.id = friendships.user_id").
 		Where("friendships.friend_id = ? AND friendships.status = 'pending'", currentUserID).

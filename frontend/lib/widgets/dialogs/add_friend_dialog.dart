@@ -41,6 +41,8 @@ Future<void> showAddFriendDialog(
 
       return StatefulBuilder(
         builder: (c, setState) => AlertDialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 14),
+          contentPadding: const EdgeInsets.fromLTRB(14, 14, 14, 0),
           title: const Text('Add friend'),
           content: SizedBox(
             width: double.maxFinite,
@@ -49,13 +51,19 @@ Future<void> showAddFriendDialog(
               children: [
                 TextField(
                   controller: emailController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 10,
+                    ),
                     hintText: "Search by name or email",
-                    prefixIcon: Icon(Icons.search),
+                    prefixIcon: const Icon(Icons.search),
+                    hintStyle: const TextStyle(fontSize: 14),
                   ),
                   keyboardType: TextInputType.emailAddress,
                   onChanged: (value) {
-                    // debounce
+                    // debounce to avoid spamming the API on every keystroke
                     if (_debounce?.isActive ?? false) _debounce!.cancel();
                     _debounce = Timer(
                       const Duration(milliseconds: 300),
@@ -85,7 +93,14 @@ Future<void> showAddFriendDialog(
                     child: ListView.separated(
                       shrinkWrap: true,
                       itemCount: suggestions.length,
-                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      separatorBuilder: (_, __) => Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: const Divider(
+                          height: 8,
+                          thickness: 1,
+                          color: Colors.grey,
+                        ),
+                      ),
                       itemBuilder: (ctx, i) {
                         final user = suggestions[i];
                         final email = user['email'] ?? '';
@@ -207,7 +222,7 @@ Future<void> showAddFriendDialog(
             ElevatedButton(
               onPressed: () async {
                 final email = emailController.text.trim();
-                final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+                final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+ ');
                 if (email.isEmpty || !emailRegex.hasMatch(email)) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
-import 'screens/splash_screen.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'services/api_service.dart';
-import 'models/profile_model.dart';
-import 'models/map_state_model.dart';
-import 'models/friends_model.dart';
+import 'provider/profile_provider.dart';
+import 'provider/map_state_provider.dart';
+import 'provider/friends_provider.dart';
+import 'screens/login_screen.dart';
+import 'screens/map_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -17,14 +19,14 @@ void main() async {
   }
 
   runApp(
-    MultiProvider(
+    MultiProvider( // Provide all our models to the widget tree
       providers: [
-        Provider(create: (_) => ApiService()),
+        Provider(create: (_) => ApiService()), 
         ChangeNotifierProvider(
-          create: (context) => FriendsModel(context.read<ApiService>()),
+          create: (context) => FriendsModel(context.read<ApiService>()), 
         ),
         ChangeNotifierProvider(
-          create: (context) => ProfileModel(context.read<ApiService>()),
+          create: (context) => ProfileProvider(context.read<ApiService>()),
         ),
         ChangeNotifierProvider(
           create: (context) => MapStateModel(context.read<ApiService>()),
@@ -41,10 +43,59 @@ class KaQuizApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'KaQuiz',
+      title: 'WhereUAt?',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
-      home: const SplashScreen(),
+      home: const _StartupGate(),
+    );
+  }
+}
+
+class _StartupGate extends StatefulWidget {
+  const _StartupGate();
+
+  @override
+  State<_StartupGate> createState() => _StartupGateState();
+}
+
+class _StartupGateState extends State<_StartupGate> {
+  final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final ApiService _apiService = ApiService();
+
+  late final Future<Widget> _initialScreen = _resolveInitialScreen();
+
+  Future<Widget> _resolveInitialScreen() async {
+    try {
+      final token = await _storage.read(key: 'jwt_token');
+      if (token == null) {
+        return const LoginScreen();
+      }
+
+      final profile = await _apiService.getMyProfile();
+      if (profile == null) {
+        await _storage.delete(key: 'jwt_token');
+        return const LoginScreen();
+      }
+
+      return MapScreen(initialAvatarUrl: profile['avatar'] as String?);
+    } catch (_) {
+      return const LoginScreen();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Widget>(
+      future: _initialScreen,
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) {
+          return const Scaffold(
+            body: Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        return snapshot.data!;
+      },
     );
   }
 }

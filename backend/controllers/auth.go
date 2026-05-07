@@ -41,16 +41,19 @@ func GoogleLogin(c *gin.Context) {
 		return
 	}
 
+	// Check the audience to ensure the token is meant for our app
 	aud := payload.Audience
 	if aud != os.Getenv("GOOGLE_CLIENT_ID_IOS") && aud != os.Getenv("GOOGLE_CLIENT_ID_ANDROID") && aud != os.Getenv("GOOGLE_WEB_CLIENT_ID") {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid audience in ID token"})
 		return
 	}
 
+	// Extract user info from the token claims
 	email := payload.Claims["email"].(string)
 	name := payload.Claims["name"].(string)
 	avatar := payload.Claims["picture"].(string)
 
+	// Check if a user with this email already exists in the database
 	var user models.User
 	if err := database.DB.Where("email = ?", email).First(&user).Error; err != nil {
 		// User not found, create a new user with Google avatar and name

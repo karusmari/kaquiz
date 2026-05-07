@@ -52,18 +52,19 @@ class ApiService {
         final token = jsonDecode(response.body)['token'];
 
         if (token != null) {
-          await _storage.write(key: 'jwt_token', value: token); // Save token securely
+          await _storage.write(
+            key: 'jwt_token',
+            value: token,
+          ); // Save token securely
         }
         return token;
       } else {
-        print(
-          'Login failed with status: ${response.statusCode}, body: ${response.body}',
+        throw Exception(
+          'Backend login failed with status ${response.statusCode}: ${response.body}',
         );
-        return null;
       }
     } catch (e) {
-      print('Error during login: $e');
-      return null;
+      throw Exception('Error during login: $e');
     }
   }
 
@@ -129,10 +130,9 @@ class ApiService {
       }
 
       await _handleUnauthorized(response.statusCode);
-      print(
+      throw Exception(
         'Update profile failed with status: ${response.statusCode}, body: ${response.body}',
       );
-      return null;
     } catch (e) {
       print('Update profile error: $e');
       return null;
@@ -143,7 +143,9 @@ class ApiService {
   Future<Map<String, dynamic>?> searchUserByEmail(String email) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/api/users/search?email=${Uri.encodeQueryComponent(email)}'),
+        Uri.parse(
+          '$baseUrl/api/users/search?email=${Uri.encodeQueryComponent(email)}',
+        ),
         headers: await _getAuthHeaders(protected: true),
       );
 
@@ -162,7 +164,9 @@ class ApiService {
   Future<List<dynamic>?> searchUsers(String query) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/api/users/search?email=${Uri.encodeQueryComponent(query)}'),
+        Uri.parse(
+          '$baseUrl/api/users/search?email=${Uri.encodeQueryComponent(query)}',
+        ),
         headers: await _getAuthHeaders(protected: true),
       );
 

@@ -62,8 +62,8 @@ func GetFriendsLocations(c *gin.Context) {
 		Latitude  float64   `json:"latitude"`
 		Longitude float64   `json:"longitude"`
 		UpdatedAt time.Time `json:"updated_at"`
-		Name      string    `json:"name"`   // Tuleb User tabelist
-		Avatar    string    `json:"avatar"` // Tuleb User tabelist
+		Name      string    `json:"name"`   // comes from the User table, joined in the query
+		Avatar    string    `json:"avatar"` // comes from the User table, joined in the query
 	}
 
 	var results []FriendLocationResponse

@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Allow KaQuiz to choose a profile picture from your photo library.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Allow KaQuiz to show your current location on the map.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

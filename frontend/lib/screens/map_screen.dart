@@ -6,8 +6,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
-import '../models/map_state_model.dart';
-import '../models/profile_model.dart';
+import '../provider/map_state_provider.dart';
+import '../provider/profile_provider.dart';
 import '../services/api_service.dart';
 import '../widgets/dialogs/add_friend_dialog.dart';
 import '../widgets/dialogs/friends_list_dialog.dart';
@@ -28,20 +28,74 @@ class _MapScreenState extends State<MapScreen> {
   final ApiService _apiService = ApiService();
   final MapController _mapController = MapController();
 
+  final TextEditingController nameController = TextEditingController();
+
+  // freeing the memory only when the MapScreen actually closes and not when navigating to dialogs or other screens on top of it
+  @override
+  void dispose() {
+    nameController.dispose();
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  Widget _buildLocationStatusBody({
+    required IconData icon,
+    required String title,
+    required String message,
+    Widget? action,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 52, color: Colors.blueGrey.shade400),
+            const SizedBox(height: 16),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.blueGrey.shade700,
+                height: 1.4,
+              ),
+            ),
+            if (action != null) ...[const SizedBox(height: 18), action],
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _startMapInitialization() {
+    if (!mounted) return;
+
+    final mapState = context.read<MapStateModel>();
+    mapState.shutdown();
+    mapState.initialize(
+      onFriendTapped: _showFriendInfoDialog,
+      onPositionUpdated: (position) {
+        if (mounted) {
+          _mapController.move(position, 14);
+        }
+      },
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      context.read<MapStateModel>().initialize(
-        onFriendTapped: _showFriendInfoDialog,
-        onPositionUpdated: (position) {
-          if (mounted) {
-            _mapController.move(position, 14);
-          }
-        },
-      );
-      context.read<ProfileModel>().loadMyProfile();
+      _startMapInitialization();
+      context.read<ProfileProvider>().loadMyProfile();
     });
   }
 
@@ -207,18 +261,18 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   Future<void> _showMyProfileDialog() async {
-    final profileModel = context.read<ProfileModel>();
-    await profileModel.loadMyProfile();
+    final profileProvider = context.read<ProfileProvider>();
+    await profileProvider.loadMyProfile();
 
     if (!mounted) return;
 
-    final nameController = TextEditingController(text: profileModel.name ?? '');
+    final currentName= profileProvider.name ?? '';
+    nameController.text = currentName;
 
-    try {
-      await showDialog(
-        context: context,
-        builder: (dialogContext) {
-          String? dialogAvatar = profileModel.avatar ?? widget.initialAvatarUrl;
+    await showDialog(
+      context: context,
+      builder: (dialogContext) {
+          String? dialogAvatar = profileProvider.avatar ?? widget.initialAvatarUrl;
 
           return StatefulBuilder(
             builder: (context, setStateDialog) {
@@ -270,14 +324,14 @@ class _MapScreenState extends State<MapScreen> {
                                   final avatarDataUrl =
                                       'data:$mimeType;base64,${base64Encode(bytes)}';
 
-                                  final ok = await profileModel.updateAvatar(
+                                  final ok = await profileProvider.updateAvatar(
                                     avatarDataUrl,
                                   );
                                   if (!ok || !mounted) return;
 
                                   setStateDialog(() {
                                     dialogAvatar =
-                                        profileModel.avatar ?? dialogAvatar;
+                                        profileProvider.avatar ?? dialogAvatar;
                                   });
                                 },
                                 child: Stack(
@@ -422,7 +476,7 @@ class _MapScreenState extends State<MapScreen> {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
-                                  profileModel.email ?? '',
+                                  profileProvider.email ?? '',
                                   style: TextStyle(
                                     color: Colors.blueGrey.shade900,
                                     fontSize: 14,
@@ -444,12 +498,17 @@ class _MapScreenState extends State<MapScreen> {
                             const Spacer(),
                             ElevatedButton(
                               onPressed: () async {
-                                final ok = await profileModel.updateDisplayName(
-                                  nameController.text,
-                                );
-                                if (!mounted) return;
-                                if (ok && dialogContext.mounted) {
-                                  Navigator.of(dialogContext).pop();
+                                final newName = nameController.text.trim();
+
+                                final ok = await profileProvider.updateDisplayName(newName);
+                                if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+
+                                if (!ok && mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Failed to save name. See console for details.'),
+                                    ),
+                                  );
                                 }
                               },
                               child: const Text('Save'),
@@ -465,10 +524,8 @@ class _MapScreenState extends State<MapScreen> {
           );
         },
       );
-    } finally {
-      nameController.dispose();
-    }
   }
+
 
   void _showAddFriendDialog() {
     showAddFriendDialog(context, _apiService);
@@ -561,9 +618,10 @@ class _MapScreenState extends State<MapScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer2<MapStateModel, ProfileModel>(
-      builder: (context, mapState, profileModel, _) {
-        final avatarUrl = profileModel.avatar ?? widget.initialAvatarUrl;
+    return Consumer2<MapStateModel, ProfileProvider>(
+      builder: (context, mapState, profileProvider, _) {
+        final avatarUrl = profileProvider.avatar ?? widget.initialAvatarUrl;
+        final locationStatus = mapState.locationStatus;
 
         return Scaffold(
           appBar: AppBar(
@@ -572,7 +630,11 @@ class _MapScreenState extends State<MapScreen> {
               tooltip: 'Menu',
               onPressed: _showAppMenu,
             ),
-            title: const Text('WhereUAt?'),
+            title: Image.asset(
+              'assets/appbar.png',
+              height: 30,
+              fit: BoxFit.contain,
+            ),
             actions: [
               IconButton(
                 icon: const Icon(Icons.search),
@@ -635,73 +697,113 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ],
           ),
-          body: FlutterMap(
-            mapController: _mapController,
-            options: MapOptions(
-              initialCenter: mapState.currentPosition,
-              initialZoom: 14,
-              minZoom: 4,
-              maxZoom: 20,
-              cameraConstraint: CameraConstraint.contain(
-                bounds: LatLngBounds(
-                  const LatLng(-85.05112878, -180),
-                  const LatLng(85.05112878, 180),
-                ),
-              ),
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.kaquiz',
-              ),
-              MarkerLayer(
-                markers: [
-                  Marker(
-                    point: mapState.currentPosition,
-                    width: 120,
-                    height: 84,
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.my_location,
-                          color: Color.fromARGB(255, 127, 97, 128),
-                          size: 40,
-                        ),
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.92),
-                            borderRadius: BorderRadius.circular(999),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Colors.black26,
-                                blurRadius: 4,
-                                offset: Offset(0, 2),
+          body: locationStatus == LocationInitializationStatus.loading
+              ? _buildLocationStatusBody(
+                  icon: Icons.location_searching,
+                  title: 'Finding your location',
+                  message:
+                      'Waiting for the first GPS fix so the map opens on your real position.',
+                )
+              : locationStatus == LocationInitializationStatus.permissionDenied
+              ? _buildLocationStatusBody(
+                  icon: Icons.location_off,
+                  title: 'Location access is needed',
+                  message:
+                      'Enable location permission to open the map on your current position.',
+                  action: ElevatedButton(
+                    onPressed: _startMapInitialization,
+                    child: const Text('Try again'),
+                  ),
+                )
+              : locationStatus == LocationInitializationStatus.error
+              ? _buildLocationStatusBody(
+                  icon: Icons.error_outline,
+                  title: 'Could not load location',
+                  message:
+                      'The app could not read your current position. Try again once location services are available.',
+                  action: ElevatedButton(
+                    onPressed: _startMapInitialization,
+                    child: const Text('Retry'),
+                  ),
+                )
+              : FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: mapState.currentPosition,
+                    initialZoom: 14,
+                    minZoom: 4,
+                    maxZoom: 20,
+                    cameraConstraint: CameraConstraint.contain(
+                      bounds: LatLngBounds(
+                        const LatLng(-85.05112878, -180),
+                        const LatLng(85.05112878, 180),
+                      ),
+                    ),
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.kaquiz',
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: mapState.currentPosition,
+                          width: 120,
+                          height: 84,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.my_location,
+                                color: Color.fromARGB(255, 127, 97, 128),
+                                size: 40,
+                              ),
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.92),
+                                  borderRadius: BorderRadius.circular(999),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Colors.black26,
+                                      blurRadius: 4,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: const Text(
+                                  'You are here',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.black87,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                          child: const Text(
-                            'You are here',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                              color: Colors.black87,
-                            ),
-                          ),
                         ),
+                        ...mapState.friendMarkers,
                       ],
                     ),
-                  ),
-                  ...mapState.friendMarkers,
-                ],
-              ),
-            ],
-          ),
+                  ],
+                ),
+          floatingActionButton:
+              locationStatus == LocationInitializationStatus.ready
+              ? FloatingActionButton(
+                  onPressed: () {
+                    _mapController.move(mapState.currentPosition, 14);
+                  },
+                  tooltip: 'Center on my location',
+                  child: const Icon(Icons.my_location),
+                )
+              : null,
         );
       },
     );
