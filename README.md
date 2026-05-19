@@ -153,17 +153,21 @@ kaquiz/
 
 | Method | Endpoint                   | Purpose                            |
 | ------ | -------------------------- | ---------------------------------- |
-| POST   | `/auth`                    | Google login, returns JWT          |
-| POST   | `/api/auth/signout`        | Revokes JWT token                  |
-| GET    | `/api/users/me`            | Get current user profile           |
-| PUT    | `/api/users`               | Update user profile (name, avatar) |
-| GET    | `/api/friends`             | List all friends                   |
-| POST   | `/api/friends/request`     | Send friend request                |
-| POST   | `/api/friends/{id}/accept` | Accept friend request              |
-| DELETE | `/api/friends/{id}`        | Remove friend                      |
-| POST   | `/api/locations`           | Update own location                |
-| GET    | `/api/locations/friends`   | Get friends' current locations     |
-| GET    | `/api/invites/pending`     | Get pending friend requests        |
+| Method | Endpoint                       | Purpose                                      |
+| ------ | ------------------------------ | -------------------------------------------- |
+| POST   | `/auth`                        | Google login, returns JWT                    |
+| POST   | `/api/auth/signout`            | Revoke JWT token (sign out)                  |
+| GET    | `/api/users/me`                | Get current user profile                     |
+| PUT    | `/api/users`                   | Update user profile (name, avatar)           |
+| GET    | `/api/users/search`            | Search users by email or name (query param)  |
+| POST   | `/api/location`                | Update own location (latitude, longitude)    |
+| POST   | `/api/invites/:user_id`        | Send friend invite to user with `user_id`    |
+| POST   | `/api/invites/accept/:user_id` | Accept an invite addressed to the current user (by `user_id`) |
+| POST   | `/api/invites/decline/:user_id`| Decline an invite addressed to the current user (by `user_id`) |
+| GET    | `/api/invites/pending`         | Get pending friend requests for current user |
+| GET    | `/api/friends`                 | Get friends' current locations (for map)     |
+| GET    | `/api/friends/list`            | Get list of accepted friends (names, emails) |
+| DELETE | `/api/friends/:id`             | Remove friend by friendship/user id          |
 
 ---
 
@@ -234,8 +238,3 @@ kaquiz/
 3. Update `.env` with valid tunnel URL before running
 4. Ensure `flutter analyze` and `go vet` pass
 
----
-
-## License
-
-[Add license here if needed]

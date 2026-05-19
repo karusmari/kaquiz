@@ -31,8 +31,6 @@ func Setup(r *gin.Engine) {
 		protected.POST("/invites/accept/:user_id", controllers.AcceptInvites)
 		protected.POST("/invites/decline/:user_id", controllers.DeclineInvites)
 		protected.GET("/invites/pending", controllers.GetPendingInvites)
-		protected.POST("/friends/accept/:user_id", controllers.AcceptInvites)
-		protected.POST("/friends/decline/:user_id", controllers.DeclineInvites)
 
 		// friend routes
 		protected.GET("/friends", controllers.GetFriendsLocations)
