@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	"github.com/joho/godotenv"
 	"google.golang.org/api/idtoken"
 )
 
@@ -20,9 +19,12 @@ type GoogleLoginInput struct {
 	IDToken string `json:"id_token" binding:"required"`
 }
 
-func GetSecret() string {
-	godotenv.Load()
-	return os.Getenv("JWT_SECRET")
+func GetSecret() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		panic("JWT_SECRET environment variable is not set")
+	}
+ 	return []byte(secret)
 }
 
 func GoogleLogin(c *gin.Context) {
@@ -86,6 +88,7 @@ func GoogleLogin(c *gin.Context) {
 		"jti":     jti,
 	})
 
+	// Sign the token with the secret key
 	tokenString, err := token.SignedString([]byte(GetSecret()))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
@@ -103,35 +106,35 @@ func SignOut(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header is required"})
 		return
 	}
+	// strip "bearer " prefix to get the actual token string
 	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
 
-	// Parse token to extract jti
+	// Parse token and check for the validity
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(GetSecret()), nil
+		return GetSecret(), nil
 	})
 	if err != nil || !token.Valid {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
 		return
 	}
-
+    
+	// convert the generic token claims to a map so we can access the jti
+	// we are unpacking the "box" so Go can actually read the key-value pairs inside the token claims 	
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid token claims"})
 		return
 	}
 
-	rawJTI, ok := claims["jti"]
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "token has no jti"})
-		return
-	}
-
-	jtiStr, ok := rawJTI.(string)
+	// reading the claim: extract the unique token ID (jti) from the claims and ensure it's a valid string
+	jtiStr, ok := claims["jti"].(string)
 	if !ok || jtiStr == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid jti"})
 		return
 	}
 
+	// Create a record of this jti in the revoked tokens table so it can't be used again
+	// this puts the token's unique ID onto the "blacklist" in my database
 	revoked := models.RevokedToken{
 		JTI:       jtiStr,
 		RevokedAt: time.Now(),
@@ -141,5 +144,6 @@ func SignOut(c *gin.Context) {
 		return
 	}
 
+	// confirm the client that they have been signed out successfully
 	c.JSON(http.StatusOK, gin.H{"message": "Signed out"})
 }

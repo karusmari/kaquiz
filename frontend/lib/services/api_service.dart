@@ -18,7 +18,7 @@ class ApiService {
     if (protected) {
       String? token = await _storage.read(key: 'jwt_token');
       if (token != null && token.isNotEmpty) {
-        headers["authorization"] = "Bearer $token";
+        headers["Authorization"] = "Bearer $token";
       }
     }
     return headers;
@@ -26,13 +26,24 @@ class ApiService {
 
   // Sign out locally by removing the stored JWT
   Future<void> signOut() async {
-    await _storage.delete(key: 'jwt_token');
+    try {
+      // inform the server about sign out to revoke the token if needed
+      await http.post(
+        Uri.parse('$baseUrl/api/signout'),
+        headers: await _getAuthHeaders(protected: true),
+      );
+    } catch (e) {
+      // Sign-out request failed; swallow and continue to clear local token
+    } finally {
+      // deleting the token locally regardless of server response to ensure user is signed out on client side
+      await _storage.delete(key: 'jwt_token');
+  }
   }
 
   // If server returns 401, perform client-side sign out and return true
   Future<bool> _handleUnauthorized(int statusCode) async {
     if (statusCode == 401) {
-      print('Unauthorized detected — clearing token and signing out locally');
+      // Unauthorized detected — clear token and sign out locally
       await signOut();
       return true;
     }
@@ -82,12 +93,9 @@ class ApiService {
 
       // If unauthorized, clear token and let caller handle navigation
       await _handleUnauthorized(response.statusCode);
-      print(
-        'Get profile failed with status: ${response.statusCode}, body: ${response.body}',
-      );
       return null;
     } catch (e) {
-      print('Get profile error: $e');
+      // Get profile error: handled by returning null
       return null;
     }
   }
@@ -104,7 +112,7 @@ class ApiService {
       await _handleUnauthorized(response.statusCode);
       return false;
     } catch (e) {
-      print("Location update error: $e");
+        // Location update error: handled by returning false
       return false;
     }
   }
@@ -134,28 +142,7 @@ class ApiService {
         'Update profile failed with status: ${response.statusCode}, body: ${response.body}',
       );
     } catch (e) {
-      print('Update profile error: $e');
-      return null;
-    }
-  }
-
-  // searching the user by email
-  Future<Map<String, dynamic>?> searchUserByEmail(String email) async {
-    try {
-      final response = await http.get(
-        Uri.parse(
-          '$baseUrl/api/users/search?email=${Uri.encodeQueryComponent(email)}',
-        ),
-        headers: await _getAuthHeaders(protected: true),
-      );
-
-      if (response.statusCode == 200) {
-        return jsonDecode(response.body); // Returns {"id": X, "email": "..."}
-      }
-      await _handleUnauthorized(response.statusCode);
-      return null;
-    } catch (e) {
-      print("Search error: $e");
+        // Update profile error: handled by returning null
       return null;
     }
   }
@@ -178,12 +165,12 @@ class ApiService {
       await _handleUnauthorized(response.statusCode);
       return null;
     } catch (e) {
-      print("Search users error: $e");
+        // Search users error: handled by returning null
       return null;
     }
   }
 
-  // sending an invite via user ID (Swagger: POST /invites/{user_id})
+  // sending an invite via user ID 
   Future<bool> sendInvite(int userId) async {
     try {
       final response = await http.post(
@@ -194,32 +181,8 @@ class ApiService {
       await _handleUnauthorized(response.statusCode);
       return false;
     } catch (e) {
-      print("Invite error: $e");
+        // Invite error: handled by returning false
       return false;
-    }
-  }
-
-  // Decode JWT stored in secure storage and return `user_id` claim if present
-  Future<int?> getCurrentUserId() async {
-    try {
-      final token = await _storage.read(key: 'jwt_token');
-      if (token == null) return null;
-      final parts = token.split('.');
-      if (parts.length != 3) return null;
-      final payload = parts[1];
-      // Base64 decode (add padding if necessary)
-      String normalized = base64Url.normalize(payload);
-      final decoded = utf8.decode(base64Url.decode(normalized));
-      final Map<String, dynamic> map = jsonDecode(decoded);
-      if (map.containsKey('user_id')) {
-        return (map['user_id'] is int)
-            ? map['user_id'] as int
-            : (map['user_id'] as num).toInt();
-      }
-      return null;
-    } catch (e) {
-      print('Failed to decode JWT: $e');
-      return null;
     }
   }
 
@@ -229,7 +192,7 @@ class ApiService {
       final response = await http.get(
         Uri.parse('$baseUrl/api/friends'),
         headers: await _getAuthHeaders(protected: true),
-      );
+      ); 
 
       if (response.statusCode == 200) {
         return jsonDecode(
@@ -238,7 +201,7 @@ class ApiService {
       }
       return null;
     } catch (e) {
-      print("Get friends locations error: $e");
+        // Get friends locations error: handled by returning null
       return null;
     }
   }
@@ -253,7 +216,7 @@ class ApiService {
 
       return response.statusCode == 200;
     } catch (e) {
-      print("Delete friend error: $e");
+        // Delete friend error: handled by returning false
       return false;
     }
   }
@@ -273,7 +236,7 @@ class ApiService {
       await _handleUnauthorized(response.statusCode);
       return null;
     } catch (e) {
-      print("Get friends list error: $e");
+        // Get friends list error: handled by returning null
       return null;
     }
   }
@@ -292,7 +255,7 @@ class ApiService {
       await _handleUnauthorized(response.statusCode);
       return null;
     } catch (e) {
-      print("Get pending invites error: $e");
+        // Get pending invites error: handled by returning null
       return null;
     }
   }
@@ -300,17 +263,22 @@ class ApiService {
   // Accept an invite by friendship ID
   Future<bool> acceptInvite(int friendshipId) async {
     try {
+      final headers = await _getAuthHeaders(protected: true);
+      headers['Content-Type'] = 'application/json';
+
+      final url = '$baseUrl/api/invites/accept/$friendshipId';
+
       final response = await http.post(
-        Uri.parse('$baseUrl/api/invites/$friendshipId/accept'),
-        headers: await _getAuthHeaders(protected: true),
-        body: jsonEncode({"friendship_id": friendshipId}),
+        Uri.parse(url),
+        headers: headers,
+        body: jsonEncode({'friendship_id': friendshipId}),
       );
 
       if (response.statusCode == 200) return true;
       await _handleUnauthorized(response.statusCode);
       return false;
     } catch (e) {
-      print("Accept invite error: $e");
+        // Accept invite error: handled by returning false
       return false;
     }
   }
@@ -318,17 +286,20 @@ class ApiService {
   // Decline an invite by friendship ID
   Future<bool> declineInvite(int friendshipId) async {
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/invites/$friendshipId/decline'),
-        headers: await _getAuthHeaders(protected: true),
-        body: jsonEncode({"friendship_id": friendshipId}),
-      );
+        final headers = await _getAuthHeaders(protected: true);
+        headers["Content-Type"] = "application/json"; // Ensure content type is set for DELETE with body
+        final url = '$baseUrl/api/invites/decline/$friendshipId';
+        final response = await http.post(
+         Uri.parse(url),
+          headers: headers,
+          body: jsonEncode({'friendship_id': friendshipId})
+         );
 
       if (response.statusCode == 200) return true;
       await _handleUnauthorized(response.statusCode);
       return false;
     } catch (e) {
-      print("Decline invite error: $e");
+      // Decline invite error: handled by returning false
       return false;
     }
   }

@@ -12,6 +12,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  // Setup Google Sign-In instance configuration using client IDs in .env
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     serverClientId: dotenv.env['GOOGLE_WEB_CLIENT_ID'],
     scopes: ['email', 'profile'],
@@ -19,42 +20,47 @@ class _LoginScreenState extends State<LoginScreen> {
   final ApiService _apiService = ApiService();
   bool _isLoading = false;
 
+  // Handles the complete authentication flow
+  // Google Account picker -> google verification token -> custon BE validation -> navigation to MapScreen
   Future<void> _handleGoogleSignIn() async {
     setState(() => _isLoading = true);
 
     try {
-      print("🔐 Starting Google Sign-In process...");
+      print("Starting Google Sign-In flow...");
 
       // Clear any previous Google session so the account chooser is shown again.
       await _googleSignIn.signOut();
-      print("✅ Signed out previous session");
-
-      // 1. Google sisselogimise aken
-      print("🔄 Calling GoogleSignIn.signIn()...");
+      
+      // open the native Google Sign-In dialog and let user pick an account. This also handles the OAuth flow and returns a GoogleSignInAccount on success.
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
-      print("✅ Got Google user: ${googleUser?.email}");
 
+      // if user dismisses or cancels the login dialog screen, exit safely without error
       if (googleUser == null) {
         setState(() => _isLoading = false);
-        return; // Kasutaja tühistas sisselogimise
+        return; 
       }
+      
+      print("Got Google user: ${googleUser.email}");
 
-      // 2. Hankige Google'ilt ID Token
-      final GoogleSignInAuthentication googleAuth =
-          await googleUser.authentication;
+      // Grab authentication tokens (specifically the ID token) from the GoogleSignInAccount which will be sent to our backend for verification and JWT issuance.
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
       final String? idToken = googleAuth.idToken;
 
-      // 3. Saada see oma Go backendile
+      // forward the Google ID token to our backend API to validate it and exchange for our own JWT token for authenticated API access. 
+      // The backend will verify the token with Google's services and create a user session if valid. 
       final String? jwtToken = await _apiService.loginWithGoogle(idToken);
 
       if (jwtToken != null) {
-        final profile = await _apiService.getMyProfile();
-        final avatarUrl = profile?['avatar'] as String?;
+      print("Login successful! Token: $jwtToken");
 
-        print("Login successful! Token: $jwtToken");
-        if (!mounted) return;
+      // safety guard to prevent async operations from the interacting with the view context if the screen was destroyed
+      if (!mounted) return;
 
-        // NEXT STEP: Navigate to Map screen
+      // getting the avatar URL from the Google user profile to pass to the MapScreen for initial display
+      final String? avatarUrl = googleUser.photoUrl;
+
+        // Navigate to the MapScreen and pass the avatar URL for display. 
+        // We use pushReplacement to remove the LoginScreen from the navigation stack so user can't go back to it with the back button.
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
@@ -66,6 +72,8 @@ class _LoginScreenState extends State<LoginScreen> {
       print("❌ ERROR logging in: $error");
       print("📍 Stack trace: $stackTrace");
       if (!mounted) return;
+
+      // UI feedback for login failure with error details.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -76,6 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     } finally {
+      // always reset progress indicators when the execution chain closes out 
       if (mounted) {
         setState(() => _isLoading = false);
       }

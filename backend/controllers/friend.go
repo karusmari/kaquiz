@@ -5,6 +5,7 @@ import (
 	"kaquiz-backend/database"
 	"kaquiz-backend/models"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -137,14 +138,8 @@ func AcceptInvites(c *gin.Context) {
 		return
 	}
 
-	// a struct to bind the incoming JSON body, which contains the ID of the friend request to accept.
-	// We need this because the frontend will send the ID of the friend request that the user wants to accept.
-	var input struct {
-		FriendID uint `json:"friendship_id"`
-	}
-
-	// Bind the JSON body to the input struct and check for errors
-	if err := c.ShouldBindJSON(&input); err != nil {
+	friendshipID, err := resolveFriendshipID(c)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
@@ -152,7 +147,7 @@ func AcceptInvites(c *gin.Context) {
 	// finding the friend request from the database and updating its status to "accepted"
 	// checking if the 'friend_id' matches the user's ID to ensure that the user is accepting a request sent to them, not a request they sent
 	result := database.DB.Model(&models.Friendship{}).
-		Where("id = ? AND friend_id = ?", input.FriendID, currentUserID).
+		Where("id = ? AND friend_id = ?", friendshipID, currentUserID).
 		Update("status", "accepted")
 
 	if result.Error != nil {
@@ -182,20 +177,14 @@ func DeclineInvites(c *gin.Context) {
 		return
 	}
 
-	// a struct to bind the incoming JSON body, which contains the ID of the friend request to decline.
-	// We need this because the frontend will send the ID of the friend request that the user wants to decline.
-	var input struct {
-		FriendID uint `json:"friendship_id"`
-	}
-
-	// Bind the JSON body to the input struct and check for errors
-	if err := c.ShouldBindJSON(&input); err != nil {
+	friendshipID, err := resolveFriendshipID(c)
+	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid input"})
 		return
 	}
 
 	// Only allow decline if the invite was addressed to current user
-	result := database.DB.Where("id = ? AND friend_id = ?", input.FriendID, currentUserID).Delete(&models.Friendship{})
+	result := database.DB.Where("id = ? AND friend_id = ?", friendshipID, currentUserID).Delete(&models.Friendship{})
 
 	if result.Error != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to decline friend request"})
@@ -208,6 +197,31 @@ func DeclineInvites(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Friend request declined"})
+}
+
+func resolveFriendshipID(c *gin.Context) (uint, error) {
+	var input struct {
+		FriendshipID uint `json:"friendship_id"`
+	}
+
+	if err := c.ShouldBindJSON(&input); err == nil && input.FriendshipID != 0 {
+		return input.FriendshipID, nil
+	}
+
+	pathValue := strings.TrimSpace(c.Param("user_id"))
+	if pathValue == "" {
+		pathValue = strings.TrimSpace(c.Param("id"))
+	}
+	if pathValue == "" {
+		return 0, errors.New("missing friendship id")
+	}
+
+	parsedID, err := strconv.ParseUint(pathValue, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+
+	return uint(parsedID), nil
 }
 
 func DeleteFriend(c *gin.Context) {

@@ -15,17 +15,26 @@ func Setup(r *gin.Engine) {
 	protected := r.Group("/api")
 	protected.Use(middleware.AuthMiddleware(controllers.GetSecret()))
 	{
+		// authentication routes
+		protected.POST("/auth/signout", controllers.SignOut)
+
+		// user profile routes
 		protected.PUT("/users", controllers.UpdateUserProfile)
 		protected.GET("/users/me", controllers.GetMyProfile)
 		protected.GET("/users/search", controllers.SearchUsers)
 
+		// location routes
 		protected.POST("/location", controllers.UpdateLocation)
 
+		// friend invite routes
 		protected.POST("/invites/:user_id", controllers.SendInvites)
-		protected.POST("/invites/:user_id/accept", controllers.AcceptInvites)
-		protected.POST("/invites/:user_id/decline", controllers.DeclineInvites)
+		protected.POST("/invites/accept/:user_id", controllers.AcceptInvites)
+		protected.POST("/invites/decline/:user_id", controllers.DeclineInvites)
 		protected.GET("/invites/pending", controllers.GetPendingInvites)
+		protected.POST("/friends/accept/:user_id", controllers.AcceptInvites)
+		protected.POST("/friends/decline/:user_id", controllers.DeclineInvites)
 
+		// friend routes
 		protected.GET("/friends", controllers.GetFriendsLocations)
 		protected.GET("/friends/list", controllers.ListFriends)
 		protected.DELETE("/friends/:id", controllers.DeleteFriend)
